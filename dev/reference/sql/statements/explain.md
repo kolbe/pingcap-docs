@@ -6,9 +6,9 @@ If the output of `EXPLAIN` does not match the expected result, consider executin
 
 ## Synopsis
 
-```sql
-EXPLAIN [FORMAT=DOT] <select-statement>
-```
+![ExplainSym](/media/sqlgram/ExplainSym.png)
+![ExplainStmt](/media/sqlgram/ExplainStmt)
+![ExplainableStmt](/media/sqlgram/ExplainableStmt.png)
 
 ## Examples
 
@@ -36,12 +36,37 @@ mysql> EXPLAIN SELECT * FROM t1 WHERE id = 1;
 | Point_Get_1 | 1.00  | root | table:t1, handle:1 |
 +-------------+-------+------+--------------------+
 1 row in set (0.00 sec)
+
+mysql> EXPLAIN INSERT INTO t1 (c1) VALUES (4);
+ERROR 1105 (HY000): Unsupported type *core.Insert
+
+mysql> EXPLAIN UPDATE t1 SET c1=5 WHERE c1=3;
++---------------------+----------+------+-------------------------------------------------------------+
+| id                  | count    | task | operator info                                               |
++---------------------+----------+------+-------------------------------------------------------------+
+| TableReader_6       | 10.00    | root | data:Selection_5                                            |
+| └─Selection_5       | 10.00    | cop  | eq(test.t1.c1, 3)                                           |
+|   └─TableScan_4     | 10000.00 | cop  | table:t1, range:[-inf,+inf], keep order:false, stats:pseudo |
++---------------------+----------+------+-------------------------------------------------------------+
+3 rows in set (0.00 sec)
+
+mysql> EXPLAIN DELETE FROM t1 WHERE c1=3;
++---------------------+----------+------+-------------------------------------------------------------+
+| id                  | count    | task | operator info                                               |
++---------------------+----------+------+-------------------------------------------------------------+
+| TableReader_6       | 10.00    | root | data:Selection_5                                            |
+| └─Selection_5       | 10.00    | cop  | eq(test.t1.c1, 3)                                           |
+|   └─TableScan_4     | 10000.00 | cop  | table:t1, range:[-inf,+inf], keep order:false, stats:pseudo |
++---------------------+----------+------+-------------------------------------------------------------+
+3 rows in set (0.00 sec)
+
 ```
 
-## MySQL Compatibility
+## MySQL compatibility
 
 * Both the format of `EXPLAIN` and the potential execution plans in TiDB differ substaintially from MySQL.
 * TiDB does not support the `EXPLAIN FORMAT=JSON` as in MySQL.
+* TiDB does not currently support `EXPLAIN` for insert statements.
 
 ## See also
 
