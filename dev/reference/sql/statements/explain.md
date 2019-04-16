@@ -7,7 +7,9 @@ If the output of `EXPLAIN` does not match the expected result, consider executin
 ## Synopsis
 
 ![ExplainSym](/media/sqlgram/ExplainSym.png)
-![ExplainStmt](/media/sqlgram/ExplainStmt)
+
+![ExplainStmt](/media/sqlgram/ExplainStmt.png)
+
 ![ExplainableStmt](/media/sqlgram/ExplainableStmt.png)
 
 ## Examples
