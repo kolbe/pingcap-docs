@@ -10,9 +10,9 @@ This statement reverts all changes in the current transaction inside of TIDB.  I
 
 ## Synopsis
 
-```sql
-ROLLBACK
-```
+**Statement:**
+
+![Statement](/media/sqlgram/Statement.png)
 
 ## Examples
 

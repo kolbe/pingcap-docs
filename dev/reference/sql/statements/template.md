@@ -10,9 +10,10 @@ category: reference
 
 ## Synopsis
 
-```sql
-<the syntax overview>
-```
+**ExplainSym:**
+
+![ExplainSym](/media/sqlgram/ExplainSym.png)
+
 
 ## Examples
 

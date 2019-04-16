@@ -12,6 +12,7 @@ To show tables in a different database, use `SHOW TABLES IN DatabaseName`.
 
 ## Synopsis
 
+
 ```sql
 SHOW [FULL] TABLES [{IN|FROM} DatabaseName]
 ```

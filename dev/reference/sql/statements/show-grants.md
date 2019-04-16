@@ -10,9 +10,13 @@ category: reference
 
 ## Synopsis
 
-```sql
-SHOW GRANTS [FOR User]
-```
+**ShowStmt:**
+
+![ShowStmt](/media/sqlgram/ShowStmt.png)
+
+**Username:**
+
+![Username](/media/sqlgram/Username.png)
 
 ## Examples
 

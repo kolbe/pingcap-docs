@@ -12,9 +12,17 @@ This statement drops a table from the currently selected database. An error is r
 
 ## Synopsis
 
-```sql
-DROP TABLE [IF EXISTS] tableName
-```
+**DropTableStmt:**
+
+![DropTableStmt](/media/sqlgram/DropTableStmt.png)
+
+**TableOrTables:**
+
+![TableOrTables](/media/sqlgram/TableOrTables.png)
+
+**TableNameList:**
+
+![TableNameList](/media/sqlgram/TableNameList.png)
 
 ## Examples
 

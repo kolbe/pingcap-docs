@@ -12,9 +12,9 @@ In the absense of a `BEGIN` or `START TRANSACTION` statement, the default behavi
 
 ## Synopsis
 
-```sql
-COMMIT
-```
+**Statement:**
+
+![Statement](/media/sqlgram/Statement.png)
 
 ## Examples
 
