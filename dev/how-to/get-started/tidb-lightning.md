@@ -15,7 +15,7 @@ If you also created a CentOS 7 VM in Digital Ocean, or you have another CentOS 7
 ```bash
 adduser -G wheel tidb
 passwd -d tidb
-sudo -i -u tidb screen
+sudo -i -u tidb screen -xR
 ```
 
 Fetch and unpack all the bikeshare data archives. These 17 zip files are a combined 416MB, and the extracted data is 2.5GB, so make sure you have a few GB of free space.
@@ -27,7 +27,7 @@ unzip \*-tripdata.zip
 popd
 ```
 
-If your `.csv` file has a header, TiDB-Lightning expects the header to contain the destination names of the columns in your table. The bikeshare `.csv` files do **not** have a header line with the column names we want to use, so we'll edit the files in-place to give them the header we want. The `ex` tool included with Vim makes this very easy.
+If your `.csv` file has a header, TiDB-Lightning expects the header to contain the destination names of the columns in your table. The bikeshare `.csv` files do **not** have a header line with the column names we want to use, so we'll edit the files in-place to give them the header we want. Because the new header is exactly the same length as the old one, we don't have to copy the file or even use a real editor; instead, we can use the `dd` tool to overwrite the bytes in each CSV file with the bytes we want.
 
 We also need to create symlinks to the CSV files using the filename format expected by TiDB Lightning.
 
@@ -36,14 +36,12 @@ This bash loop will go through all CSV files, change their first line to be the 
 pushd ~/bikeshare-data
 mkdir -p import
 i=1
+printf > header %s '"duration","start_date","end_date","start_station_number","start_station","end_station_number","end_station","bike_number","member_type"'
 for f in *.csv
 do 
-  echo "$f"
-  printf %s\\n 1 c \
-    '"duration","start_date","end_date","start_station_number","start_station","end_station_number","end_station","bike_number","member_type"'\
-    . wq | 
-  ex "$f"
   printf -v new %s.%s.%03d.csv bikeshare trips "$((i++))"
+  echo "$f"
+  dd conv=notrunc status=none if=header of="$f"
   echo "==> $new"
   ln -s ../"$f" import/"$new"
 done
@@ -70,11 +68,14 @@ First, let's populate the config files we'll use:
 ```bash
 pushd ~/tidb
 printf > pd.toml %s\\n 'log-file="pd.log"' 'data-dir="pd.data"'
-printf > tikv.toml %s\\n 'log-file="tikv.log"' '[storage]' 'data-dir="tikv.data"' '[pd]' 'endpoints=["127.0.0.1:2379"]' '[rocksdb]' max-open-files=1024 '[raftdb]' max-open-files=1024 
+printf > tikv.toml %s\\n 'log-file="tikv.log"' '[storage]' 'data-dir="tikv.data"' '[pd]' 'endpoints=["127.0.0.1:2379"]'\
+                         '[rocksdb]' max-open-files=1024 '[raftdb]' max-open-files=1024 
 printf > pump.toml %s\\n 'log-file="pump.log"' 'data-dir="pump.data"' 'addr="127.0.0.1:8250"' 'advertise-addr="127.0.0.1:8250"' 'pd-urls="http://127.0.0.1:2379"'
-printf > tidb.toml %s\\n 'store="tikv"' 'path="127.0.0.1:2379"' '[log.file]' 'filename="tidb.log"' '[binlog]' 'enable=true'
+printf > tidb.toml %s\\n 'store="tikv"' 'path="127.0.0.1:2379"' '[log.file]' 'filename="tidb.log"'
 printf > drainer.toml %s\\n 'log-file="drainer.log"' '[syncer]' 'db-type="mysql"' '[syncer.to]' 'host="127.0.0.1"' 'user="root"' 'password=""' 'port=3306'
-printf > tidb-lightning.toml %s\\n '[mydumper]' no-schema=true '[mydumper.csv]' "separator=','" "delimiter='\"'" header=true
+printf > tidb-lightning.toml %s\\n '[lightning]' 'file="tidb-lightning.log"' 'level="debug"'\
+                                   '[tidb]' 'pd-addr="127.0.0.1:2379"' '[tikv-importer]' 'addr="127.0.0.1:20190"'\
+                                   '[mydumper]' no-schema=true '[mydumper.csv]' "separator=','" "delimiter='\"'" header=true
 printf >> ~/.my.cnf %s\\n '[mysql]' host=127.0.0.1 port=4000 user=root
 ```
 
@@ -143,8 +144,6 @@ Start all the services:
 ```bash
 ./bin/pd-server --config=pd.toml &>pd.out &
 ./bin/tikv-server --config=tikv.toml &>tikv.out &
-./bin/pump --config=pump.toml &>pump.out &
-sleep 3
 ./bin/tidb-server --config=tidb.toml &>tidb.out &
 ```
 
@@ -154,11 +153,8 @@ Expect this output:
 [1] 20935
 [kolbe@localhost tidb-latest-linux-amd64]$ ./bin/tikv-server --config=tikv.toml &>tikv.out &
 [2] 20944
-[kolbe@localhost tidb-latest-linux-amd64]$ ./bin/pump --config=pump.toml &>pump.out &
-[3] 21050
-[kolbe@localhost tidb-latest-linux-amd64]$ sleep 3
 [kolbe@localhost tidb-latest-linux-amd64]$ ./bin/tidb-server --config=tidb.toml &>tidb.out &
-[4] 21058
+[3] 21058
 ```
 
 And if you execute `jobs`, you should see the list of running daemons:
@@ -166,8 +162,7 @@ And if you execute `jobs`, you should see the list of running daemons:
 [kolbe@localhost tidb-latest-linux-amd64]$ jobs
 [1]   Running                 ./bin/pd-server --config=pd.toml &>pd.out &
 [2]   Running                 ./bin/tikv-server --config=tikv.toml &>tikv.out &
-[3]-  Running                 ./bin/pump --config=pump.toml &>pump.out &
-[4]+  Running                 ./bin/tidb-server --config=tidb.toml &>tidb.out &
+[3]+  Running                 ./bin/tidb-server --config=tidb.toml &>tidb.out &
 ```
 
 If one of the services has failed to start (if you see "`Exit 1`" instead of "`Running`", for example), try to restart that individual service.
@@ -195,17 +190,15 @@ EoSQL
 
 TiDB-Lightning uses the `tikv-importer` tool to push the data into the backend TiKV node(s), so we start `tikv-importer` before starting TiDB-Lightning:
 ```bash
-./bin/tikv-importer --log-file=tikv-importer.log &
+./bin/tikv-importer --addr=127.0.0.1:20190 --log-file=tikv-importer.log &
 ```
 
 ```bash
-./bin/tidb-lightning --config=tidb-lightning.toml --pd-urls=127.0.0.1:2379 --importer=127.0.0.1:20160 --log-file=tidb-lightning.log -L debug -d "$HOME"/bikeshare-data/import
+./bin/tidb-lightning --config=tidb-lightning.toml -d "$HOME"/bikeshare-data/import
 ```
 
 ```
-success=0; while ! ((success)); do if time ./bin/tidb-lightning --config=tidb-lightning.toml --pd-urls=127.0.0.1:2379 --importer=127.0.
-0.1:20160 --log-file=tidb-lightning.log -L debug -d "$HOME"/bikeshare-data/import; then success=1; echo "$(tput setaf 2)success"$HOME"/bikeshare-data/import$(
-tput sgr0)"; else echo "$(tput setaf 1; tput bold)failure"$HOME"/bikeshare-data/import$(tput sgr0)"; fi; sleep 1; done
+success=0; while ! ((success)); do if time ./bin/tidb-lightning --config=tidb-lightning.toml --pd-urls=127.0.0.1:2379 --importer=127.0.0.1:20160 --log-file=tidb-lightning.log -L debug -d "$HOME"/bikeshare-data/import; then success=1; echo "$(tput setaf 2)success"$HOME"/bikeshare-data/import$(tput sgr0)"; else echo "$(tput setaf 1; tput bold)failure"$HOME"/bikeshare-data/import$(tput sgr0)"; fi; sleep 1; done
 ```
 
 ```bash
@@ -227,3 +220,11 @@ done
 # # # #
 
 To get the number of processors (physical and logical) on your machine, you can execute `getconf _NPROCESSORS_ONLN`.
+
+
+bugs:
+1) tikv-importer binds to same port as tikv-server
+   a) tikv-importer and tikv-server are not handling bind conflicts properly
+2) tidb-lightning gives a crazy error message if there's a gRPC problem or in this "EOF" case
+3) tikv-importer does not seem to clean up after itself properly, or maybe doesn't handle being invoked in quick succession, or ... ?
+4) '[ddl] syncer check all versions, someone is not synced, continue checking'
