@@ -4,7 +4,7 @@
 
 TiDB-Lightning really benefits from a lot of CPU cores, so for this tutorial I recommend that you start a new cloud VM in the cloud provider of your choosing. (I'll use Digital Ocean, because it's inexpensive, quick to create VMs, and very simple to use from the command line. Digital Ocean starts VMs with the root user, which isn't so good, so I create and switch to user `tidb` after executing the `yum install` command you find below.)
 
-If using a cloud VM isn't practical for some reason, you *can* complete the steps in this tutorial even in a single-core local VM. The steps in this tutorial assume you're using a clean environment, though, and the steps in this tutorial will cause a number of directories and files to be created in the home directory of the user executing the steps below.
+If using a cloud VM isn't practical for some reason, you *can* complete the steps in this tutorial even in a single-core local VM. The steps in this tutorial do assume you're using a clean environment, though, and the steps in this tutorial will cause a number of directories and files to be created in the home directory of the user executing the steps below.
 
 Install `unzip`, the MariaDB command-line client, and a couple other useful tools:
 ```bash
@@ -27,7 +27,7 @@ unzip \*-tripdata.zip
 popd
 ```
 
-If your `.csv` file has a header, TiDB-Lightning expects the header to contain the destination names of the columns in your table. The bikeshare `.csv` files do **not** have a header line with the column names we want to use, so we'll edit the files in-place to give them the header we want. Because the new header is exactly the same length as the old one, we don't have to copy the file or even use a real editor; instead, we can use the `dd` tool to overwrite the bytes in each CSV file with the bytes we want.
+If your `.csv` file has a header, TiDB-Lightning expects the header to contain the destination names of the columns in your table. The bikeshare `.csv` files do **not** have a header line with the column names we want to use, so we'll edit the files in-place to give them the header we want. Because the new header is exactly the same length as the old one, we don't have to copy the file or even use a real editor; instead, we can use the `dd` tool to overwrite the bytes in each CSV file with the bytes we want. This is really useful if you have extremely large files and don't want to make a copy of them.
 
 We also need to create symlinks to the CSV files using the filename format expected by TiDB Lightning.
 
@@ -70,12 +70,11 @@ pushd ~/tidb
 printf > pd.toml %s\\n 'log-file="pd.log"' 'data-dir="pd.data"'
 printf > tikv.toml %s\\n 'log-file="tikv.log"' '[storage]' 'data-dir="tikv.data"' '[pd]' 'endpoints=["127.0.0.1:2379"]'\
                          '[rocksdb]' max-open-files=1024 '[raftdb]' max-open-files=1024 
-printf > pump.toml %s\\n 'log-file="pump.log"' 'data-dir="pump.data"' 'addr="127.0.0.1:8250"' 'advertise-addr="127.0.0.1:8250"' 'pd-urls="http://127.0.0.1:2379"'
 printf > tidb.toml %s\\n 'store="tikv"' 'path="127.0.0.1:2379"' '[log.file]' 'filename="tidb.log"'
-printf > drainer.toml %s\\n 'log-file="drainer.log"' '[syncer]' 'db-type="mysql"' '[syncer.to]' 'host="127.0.0.1"' 'user="root"' 'password=""' 'port=3306'
 printf > tidb-lightning.toml %s\\n '[lightning]' 'file="tidb-lightning.log"' 'level="debug"'\
                                    '[tidb]' 'pd-addr="127.0.0.1:2379"' '[tikv-importer]' 'addr="127.0.0.1:20190"'\
                                    '[mydumper]' no-schema=true '[mydumper.csv]' "separator=','" "delimiter='\"'" header=true
+printf > tikv-importer.toml %s\\n 'log-file="tikv-importer.log"' '[server]' 'addr="127.0.0.1:20190"'
 printf >> ~/.my.cnf %s\\n '[mysql]' host=127.0.0.1 port=4000 user=root
 ```
 
@@ -86,28 +85,18 @@ for f in *.toml; do echo "$f:"; cat "$f"; echo; done
 
 Expect this output:
 ```
-drainer.toml:
-log-file="drainer.log"
-[syncer]
-db-type="mysql"
-[syncer.to]
-host="127.0.0.1"
-user="root"
-password=""
-port=3306
-
 pd.toml:
 log-file="pd.log"
 data-dir="pd.data"
 
-pump.toml:
-log-file="pump.log"
-data-dir="pump.data"
-addr="127.0.0.1:8250"
-advertise-addr="127.0.0.1:8250"
-pd-urls="http://127.0.0.1:2379"
-
 tidb-lightning.toml:
+[lightning]
+file="tidb-lightning.log"
+level="debug"
+[tidb]
+pd-addr="127.0.0.1:2379"
+[tikv-importer]
+addr="127.0.0.1:20190"
 [mydumper]
 no-schema=true
 [mydumper.csv]
@@ -120,8 +109,11 @@ store="tikv"
 path="127.0.0.1:2379"
 [log.file]
 filename="tidb.log"
-[binlog]
-enable=true
+
+tikv-importer.toml:
+log-file="tikv-importer.log"
+[server]
+addr="127.0.0.1:20190"
 
 tikv.toml:
 log-file="tikv.log"
@@ -133,12 +125,11 @@ endpoints=["127.0.0.1:2379"]
 max-open-files=1024
 [raftdb]
 max-open-files=1024
-
 ```
 
 ## Bootstrapping
 
-Now we can start each component. This is best done in a specific order, first bringing up the PD (Placement Driver), then TiKV Server (the backend key/value store used by TiDB Platform), then pump (because TiDB must connect to the pump service to send the binary log), and finally TiDB Server (the frontend that speaks the MySQL protocol to your applications).
+Now we can start each component. This is best done in a specific order, first bringing up the PD (Placement Driver), then TiKV Server (the backend key/value store used by the TiDB Platform), and finally TiDB Server (the frontend that speaks the MySQL protocol to your applications).
 
 Start all the services:
 ```bash
@@ -190,7 +181,7 @@ EoSQL
 
 TiDB-Lightning uses the `tikv-importer` tool to push the data into the backend TiKV node(s), so we start `tikv-importer` before starting TiDB-Lightning:
 ```bash
-./bin/tikv-importer --addr=127.0.0.1:20190 --log-file=tikv-importer.log &
+./bin/tikv-importer --config=tikv-importer.toml &
 ```
 
 ```bash
