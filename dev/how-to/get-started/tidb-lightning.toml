@@ -1,7 +1,0 @@
-[mydumper]
-no-schema = true
-
-[mydumper.csv]
-separator = ','
-delimiter = '"'
-header = true

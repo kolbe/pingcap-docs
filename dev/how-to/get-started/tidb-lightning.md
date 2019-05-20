@@ -8,7 +8,8 @@ If using a cloud VM isn't practical for some reason, you *can* complete the step
 
 Install `unzip`, the MariaDB command-line client, and a couple other useful tools:
 ```bash
-yum install -y unzip mariadb vim screen
+yum upgrade -y
+yum install -y unzip mariadb vim screen iotop lsof
 ```
 
 If you also created a CentOS 7 VM in Digital Ocean, or you have another CentOS 7 environment where you only have a root user, be sure to create and switch to another user account before proceeding. You should **not** run components of TiDB Platform as `root`. These commands will create a `tidb` user that has *no password* and can *use sudo without root*. You should only execute these commands in a testing environment!
@@ -230,6 +231,8 @@ TODO:
 The On-Time data set is a collection of statistics about flight arrival times in the USA. The total size of the downloaded `.zip` files is about 6.5GB and the size of the uncompressed `.csv` files is an additional 76GB.
 
 ```bash
+mkdir ~/ontime
+pushd ~/ontime
 files=(https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_{1987..2018}_{1..12}.zip)
 step=$((${#files[@]}/10))
 for ((th=0;th<10;th++)); do
@@ -242,7 +245,8 @@ If you want to monitor the progress of curl, you can start this loop, which will
 while true; do
   plist=$(pgrep curl)
   [[ $plist ]] || break
-  date lsof -p "${plist//$'\n'/,}" | grep zip
+  date
+  lsof -p "${plist//$'\n'/,}" | grep zip
   sleep 2
 done
 ```
