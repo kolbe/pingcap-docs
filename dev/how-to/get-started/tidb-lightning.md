@@ -6,10 +6,14 @@ TiDB-Lightning really benefits from a lot of CPU cores, so for this tutorial I r
 
 If using a cloud VM isn't practical for some reason, you *can* complete the steps in this tutorial even in a single-core local VM. The steps in this tutorial do assume you're using a clean environment, though, and the steps in this tutorial will cause a number of directories and files to be created in the home directory of the user executing the steps below.
 
+TiDB-Lightning consists of the `tidb-lightning` executable and a separate `tikv-importer` executable. 
+
+https://pingcap.com/images/docs/tidb-lightning-architecture.png
+
 Install `unzip`, the MariaDB command-line client, and a couple other useful tools:
 ```bash
 yum upgrade -y
-yum install -y unzip mariadb vim screen iotop lsof
+yum install -y unzip mariadb vim screen iotop lsof awscli
 ```
 
 If you also created a CentOS 7 VM in Digital Ocean, or you have another CentOS 7 environment where you only have a root user, be sure to create and switch to another user account before proceeding. You should **not** run components of TiDB Platform as `root`. These commands will create a `tidb` user that has *no password* and can *use sudo without root*. You should only execute these commands in a testing environment!
@@ -19,11 +23,18 @@ passwd -d tidb
 sudo -i -u tidb screen -xR
 ```
 
+The `tikv-importer` and `tikv-server` processes can use a lot of file descriptors, so it's best to bump up the hard and soft ulimits to permit that. You can do this by appending a couple lines to `/etc/security/limits.conf`:
+```bash
+printf "$USER %s nofile 1000000\n" hard soft | sudo tee -a /etc/security/limits.conf
+```
+
+You may need to log out and back in, or reboot your machine entirely, for the new limits to take effect. To verify that the new limit has taken effect, execute `ulimit -Sn`; you should see `1000000`.
+
 Fetch and unpack all the bikeshare data archives. These 17 zip files are a combined 416MB, and the extracted data is 2.5GB, so make sure you have a few GB of free space.
 ```bash
 mkdir -p ~/bikeshare-data
 pushd ~/bikeshare-data
-curl -L --remote-name-all https://s3.amazonaws.com/capitalbikeshare-data/{2010..2017}-capitalbikeshare-tripdata.zip
+curl -L --remote-name-all capitalbikeshare-data.s3.amazonaws.com/{2010..2017}-capitalbikeshare-tripdata.zip
 unzip \*-tripdata.zip
 popd
 ```
@@ -68,15 +79,7 @@ Now we'll start a very simple TiDB cluster, with a single instance each of `pd-s
 First, let's populate the config files we'll use:
 ```bash
 pushd ~/tidb
-printf > pd.toml %s\\n 'log-file="pd.log"' 'data-dir="pd.data"'
-printf > tikv.toml %s\\n 'log-file="tikv.log"' '[storage]' 'data-dir="tikv.data"' '[pd]' 'endpoints=["127.0.0.1:2379"]'\
-                         '[rocksdb]' max-open-files=1024 '[raftdb]' max-open-files=1024 
-printf > tidb.toml %s\\n 'store="tikv"' 'path="127.0.0.1:2379"' '[log.file]' 'filename="tidb.log"'
-printf > tidb-lightning.toml %s\\n '[lightning]' 'file="tidb-lightning.log"' 'level="debug"'\
-                                   '[tidb]' 'pd-addr="127.0.0.1:2379"' '[tikv-importer]' 'addr="127.0.0.1:20190"'\
-                                   '[mydumper]' no-schema=true '[mydumper.csv]' "separator=','" "delimiter='\"'" header=true
-printf > tikv-importer.toml %s\\n 'log-file="tikv-importer.log"' '[server]' 'addr="127.0.0.1:20190"'
-printf >> ~/.my.cnf %s\\n '[mysql]' host=127.0.0.1 port=4000 user=root
+curl -L https://github.com/kolbe/pingcap-docs/raw/kolbe-tutorials-lightning/dev/how-to/get-started/tidb-lightning-cnf.tgz | tar xvzf - --strip-components=1
 ```
 
 This will allow you to see the contents of the config files:
@@ -186,7 +189,7 @@ TiDB-Lightning uses the `tikv-importer` tool to push the data into the backend T
 ```
 
 ```bash
-./bin/tidb-lightning --config=tidb-lightning.toml -d "$HOME"/bikeshare-data/import
+./bin/tidb-lightning --config=tidb-lightning.toml -d ~/bikeshare-data/import
 ```
 
 ```
@@ -228,36 +231,26 @@ TODO:
 * TiDB-Lightning resume?
 * TiDB-Lightning validate data?
 
-The On-Time data set is a collection of statistics about flight arrival times in the USA. The total size of the downloaded `.zip` files is about 6.5GB and the size of the uncompressed `.csv` files is an additional 76GB.
+The On-Time data set is a collection of statistics about flight arrival times in the USA. The total size of the downloaded `.zip` files is about 7.5GB and the size of the uncompressed `.csv` files is an additional 76GB.
 
 ```bash
 mkdir ~/ontime
 pushd ~/ontime
-files=(https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_{1987..2018}_{1..12}.zip)
-step=$((${#files[@]}/10))
-for ((th=0;th<10;th++)); do
-  curl -sSL --remote-name-all "${files[@]:step*th:step}" &
-done
-```
-
-If you want to monitor the progress of curl, you can start this loop, which will continue 
-```bash
-while true; do
-  plist=$(pgrep curl)
-  [[ $plist ]] || break
-  date
-  lsof -p "${plist//$'\n'/,}" | grep zip
-  sleep 2
-done
-```
-
-Some of the files may not have existed on the server, so let's delete those before we go any further:
-```bash
-grep -l --null '<title>404' *.zip | while read -r -d '' file; do rm "$file"; done
-```
-
-```bash
+aws --no-sign-request s3 cp --recursive s3://tidb-tutorials/ontime/ ontime/
 unzip \*.zip \*.csv
+```
+
+If you're using an environment that doesn't have the `aws` command-line utility or if you want to fetch the ontime data set directly, you can find it from https://tidb-tutorials.s3.amazonaws.com/ontime.tar.
+
+```bash
+mkdir import
+i=1
+for f in *.csv
+do 
+  printf -v new %s.%s.%03d.csv ontime ontime "$((i++))"
+  echo "$f ==> $new"
+  ln -s ../"$f" import/"$new"
+done
 ```
 
 # # # #
