@@ -74,7 +74,7 @@ To view or modify binlog related states, execute corresponding SQL statements in
     +---------------+-------+
     ```
     
-    When the Value is `0`, binlog is enabled. When the Value is `1`, binlog is disabled.
+    When the Value is `0`, binlog is disabled. When the Value is `1`, binlog is enabled.
 
 - Check the status of all the Pump or Drainer nodes:
 
